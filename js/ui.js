@@ -24,51 +24,13 @@
     toastTimer = setTimeout(() => (el.hidden = true), ms);
   }
 
-  const LAYERS = {
-    topo: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', max: 17,
-      attr: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, © <a href="https://opentopomap.org">OpenTopoMap</a>' },
-    osm: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', max: 19,
-      attr: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
-  };
-  const TRAILS = { url: 'https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png',
-    attr: 'Turistautak: <a href="https://hiking.waymarkedtrails.org">Waymarked Trails</a>' };
-
-  function makeMap(el, layerKey = 'topo') {
-    const map = L.map(el, { zoomControl: false, attributionControl: true }).setView([47.5, 19.0], 12);
-    const base = {
-      'Turista': L.tileLayer(LAYERS.topo.url, { maxZoom: LAYERS.topo.max, attribution: LAYERS.topo.attr }),
-      'Alap': L.tileLayer(LAYERS.osm.url, { maxZoom: LAYERS.osm.max, attribution: LAYERS.osm.attr }),
-    };
-    const trails = L.tileLayer(TRAILS.url, { maxZoom: 18, opacity: 0.8, attribution: TRAILS.attr });
-    (layerKey === 'osm' ? base['Alap'] : base['Turista']).addTo(map);
-    trails.addTo(map);
-    L.control.layers(base, { 'Jelzett utak': trails }, { position: 'topright' }).addTo(map);
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
-    return map;
+  // Icon element from the Icons set.
+  function ic(name, cls) {
+    const span = document.createElement('span');
+    span.className = 'ic' + (cls ? ' ' + cls : '');
+    span.innerHTML = Icons[name] || Icons.pin;
+    return span;
   }
-
-  // Split a track into solid (walked) and dashed (GPS gap estimate) polylines.
-  function drawTrack(map, points, group) {
-    group = group || L.layerGroup().addTo(map);
-    group.clearLayers();
-    let seg = [];
-    const flush = () => { if (seg.length > 1) L.polyline(seg, { color: '#d9480f', weight: 5, opacity: 0.9 }).addTo(group); };
-    points.forEach((p, i) => {
-      if (i && (p.segStart || p.gapBefore)) {
-        flush();
-        if (p.gapBefore) {
-          const a = points[i - 1];
-          L.polyline([[a.lat, a.lon], [p.lat, p.lon]], { color: '#d9480f', weight: 3, dashArray: '6 8', opacity: 0.7 }).addTo(group);
-        }
-        seg = [];
-      }
-      seg.push([p.lat, p.lon]);
-    });
-    flush();
-    return group;
-  }
-
-  const dot = (color) => L.divIcon({ className: 'dot', html: `<span style="background:${color}"></span>`, iconSize: [16, 16] });
 
   // Elevation profile as inline SVG. samples: [{dist, ele}]
   function elevationChart(samples) {
@@ -115,5 +77,5 @@
     return new Date(ts).toLocaleDateString('hu-HU', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
-  window.UI = { h, toast, makeMap, drawTrack, dot, elevationChart, resizePhoto, stars, fmtDate };
+  window.UI = { h, toast, ic, elevationChart, resizePhoto, stars, fmtDate };
 })();

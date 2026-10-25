@@ -46,16 +46,17 @@
   function onPosition(pos) {
     if (!hike || paused) return;
     const c = pos.coords, now = pos.timestamp || Date.now();
+    if (window.Heading) Heading.setCourse(c.heading, c.speed);
     const stale = now - lastAccepted > STALE_MS;
-    if (c.accuracy > (stale ? MAX_ACC_STALE : MAX_ACC)) { hike.lastFix = { acc: c.accuracy, t: now }; emit(); return; }
+    if (c.accuracy > (stale ? MAX_ACC_STALE : MAX_ACC)) { hike.lastFix = { acc: c.accuracy, t: now, lat: c.latitude, lon: c.longitude }; emit(); return; }
     const p = { t: now, lat: c.latitude, lon: c.longitude, alt: c.altitude, acc: Math.round(c.accuracy) };
     const prev = hike.points[hike.points.length - 1];
-    if (prev && !pendingSegStart && Geo.haversine(prev, p) < MIN_MOVE) { hike.lastFix = { acc: c.accuracy, t: now }; emit(); return; }
+    if (prev && !pendingSegStart && Geo.haversine(prev, p) < MIN_MOVE) { hike.lastFix = { acc: c.accuracy, t: now, lat: c.latitude, lon: c.longitude }; emit(); return; }
     if (pendingSegStart && prev) p.segStart = true;
     else if (prev && now - prev.t > GAP_MS) p.gapBefore = true;
     pendingSegStart = false;
     hike.points.push(p);
-    hike.lastFix = { acc: c.accuracy, t: now };
+    hike.lastFix = { acc: c.accuracy, t: now, lat: c.latitude, lon: c.longitude };
     lastAccepted = now;
     save(false);
     emit();

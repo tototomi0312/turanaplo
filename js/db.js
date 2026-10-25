@@ -57,5 +57,21 @@
   DB.settings = async () => Object.assign({ heightCm: null, mapLayer: 'topo' }, (await DB.kvGet('settings')) || {});
   DB.saveSettings = (s) => DB.kvSet('settings', s);
 
+  // Photos are stored as ArrayBuffer, not Blob. On Tomi's iPhone (2026-10-25) a
+  // Blob-stored photo showed as a broken image; Safari's IndexedDB Blob handling is
+  // the suspected cause (not measured on the device). ArrayBuffer avoids that path.
+  DB.photoBlob = (p) => p.data ? new Blob([p.data], { type: p.type || 'image/jpeg' }) : p.blob;
+
+  // Small error log in the kv store, shown in Settings, so field problems can be read back.
+  DB.logError = async (where, err) => {
+    try {
+      const list = (await DB.kvGet('errors')) || [];
+      const msg = String(err && (err.message || err)), last = list[list.length - 1];
+      if (last && last.where === where && last.msg === msg) { last.n = (last.n || 1) + 1; last.t = Date.now(); } // a timer loop must not flood the log
+      else list.push({ t: Date.now(), where, msg, ua: navigator.userAgent.slice(0, 120) });
+      await DB.kvSet('errors', list.slice(-50));
+    } catch (e) { /* logging must never break the app */ }
+  };
+
   window.DB = DB;
 })();

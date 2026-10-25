@@ -1,12 +1,13 @@
 // App-shell cache so the app opens without signal on the trail. Map tiles are
 // cached opportunistically (only what was already viewed), capped in size.
-const SHELL = 'turanaplo-shell-v2';
+const SHELL = 'turanaplo-shell-v3';
 const TILES = 'turanaplo-tiles-v1';
 const MAX_TILES = 1500;
-const FILES = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png',
-  'js/geo.js', 'js/db.js', 'js/places.js', 'js/tracker.js', 'js/ui.js', 'js/app.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'];
+const FILES = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'data/places-hu.json',
+  'js/icons.js', 'js/geo.js', 'js/db.js', 'js/exif.js', 'js/places.js', 'js/catalog.js', 'js/heading.js', 'js/tracker.js',
+  'js/ui.js', 'js/map.js', 'js/app.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css',
+  'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -17,7 +18,7 @@ self.addEventListener('activate', (e) => {
     keys.filter((k) => ![SHELL, TILES].includes(k)).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
-const isTile = (url) => /tile\.(openstreetmap|opentopomap|waymarkedtrails)\.org/.test(url.hostname);
+const isTile = (url) => /(^|\.)tile\.(openstreetmap|opentopomap|waymarkedtrails)\.org$|^tiles\.openfreemap\.org$/.test(url.hostname);
 
 async function trimTiles(cache) {
   const keys = await cache.keys();

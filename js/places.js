@@ -9,7 +9,7 @@
     peak: 'Csúcs', viewpoint: 'Kilátópont', tower: 'Kilátó', alpine_hut: 'Turistaház',
     wilderness_hut: 'Menedékház', shelter: 'Esőbeálló', cave_entrance: 'Barlang',
     spring: 'Forrás', waterfall: 'Vízesés', ruins: 'Rom', route: 'Turistaút', own: 'Saját hely',
-    picnic_site: 'Pihenőhely', other: 'Hely',
+    picnic_site: 'Pihenőhely', castle: 'Vár', other: 'Hely',
   };
 
   function kindOf(tags) {
@@ -20,6 +20,7 @@
     if (tags.amenity === 'shelter') return 'shelter';
     if (tags.natural) return KIND[tags.natural] ? tags.natural : 'other';
     if (tags.waterway === 'waterfall') return 'waterfall';
+    if (tags.historic === 'castle') return 'castle';
     if (tags.historic === 'ruins') return 'ruins';
     return 'other';
   }
@@ -119,6 +120,42 @@
     });
   }
 
+  // Car parks around a destination. Same parallel Overpass + Nominatim pattern as nearby().
+  async function parking(lat, lon, radius = 8000, onUpdate) {
+    const found = new Map();
+    const sorted = () => [...found.values()].sort((a, b) => a.distance - b.distance);
+    const add = (list) => {
+      list.forEach((p) => {
+        p.distance = Geo.haversine({ lat, lon }, p);
+        if (!found.has(p.id)) found.set(p.id, p);
+      });
+      if (onUpdate && list.length) onUpdate(sorted());
+    };
+    const overpass = (async () => {
+      const q = `[out:json][timeout:15];nwr(around:${radius},${lat},${lon})[amenity=parking][access!~"^(private|no|customers)$"];out center tags 60;`;
+      const res = await fetch(OVERPASS, { method: 'POST', body: 'data=' + encodeURIComponent(q),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(25000) });
+      if (!res.ok) throw new Error('Overpass ' + res.status);
+      add((await res.json()).elements.map((e) => {
+        const t = e.tags || {};
+        return { id: `osm:${e.type}/${e.id}`, lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon,
+          name: t.name || null, fee: t.fee || null, capacity: t.capacity || null, surface: t.surface || null };
+      }).filter((p) => p.lat != null));
+    })();
+    const nominatim = (async () => {
+      const dLat = radius / 111320, dLon = radius / (111320 * Math.cos((lat * Math.PI) / 180));
+      const viewbox = [lon - dLon, lat + dLat, lon + dLon, lat - dLat].map((v) => v.toFixed(4)).join(',');
+      const params = new URLSearchParams({ q: 'parking', format: 'jsonv2', limit: '30', viewbox, bounded: '1', 'accept-language': 'hu' });
+      const res = await fetch(`${NOMINATIM}?${params}`, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new Error('Nominatim ' + res.status);
+      add((await res.json()).filter((r) => r.type === 'parking').map((r) => ({ id: `osm:${r.osm_type}/${r.osm_id}`,
+        lat: +r.lat, lon: +r.lon, name: r.name || null, fee: null, capacity: null })));
+    })();
+    const results = await Promise.allSettled([overpass, nominatim]);
+    if (results.every((r) => r.status === 'rejected') && !found.size) throw results[0].reason;
+    return sorted();
+  }
+
   // DEM elevation for resampled points; Open-Meteo takes up to 100 coordinates per call.
   async function elevations(pts) {
     const out = [];
@@ -144,5 +181,5 @@
     return merged;
   }
 
-  window.Places = { KIND, nearby, search, elevations, remember };
+  window.Places = { KIND, nearby, search, elevations, remember, parking };
 })();

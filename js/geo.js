@@ -86,5 +86,11 @@
     return h ? `${h} ó ${String(m).padStart(2, '0')} p` : `${m} p ${String(s % 60).padStart(2, '0')} mp`;
   }
 
-  window.Geo = { haversine, trackDistance, elevationGain, smooth, resample, estimateSteps, fmtKm, fmtDur };
+  function fmtClock(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    return h ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+  }
+
+  window.Geo = { haversine, trackDistance, elevationGain, smooth, resample, estimateSteps, fmtKm, fmtDur, fmtClock };
 })();
