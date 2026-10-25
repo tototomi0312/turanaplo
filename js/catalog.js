@@ -10,11 +10,11 @@
     const res = await fetch('data/places-hu.json');
     data = await res.json();
     const towns = data.towns || [];
-    items = data.items.map(([id, name, k, lat, lon, ele, r, score, t = -1]) => {
+    items = data.items.map(([id, name, k, lat, lon, ele, r, score, t = -1, symbol = null]) => {
       const region = r >= 0 ? data.regions[r] : null, town = t >= 0 ? towns[t] : null;
       return {
         id: 'osm:' + ({ n: 'node', w: 'way', r: 'relation' }[id[0]]) + '/' + id.slice(1),
-        source: 'osm', name, kind: data.kinds[k], lat, lon, ele, region, town,
+        source: 'osm', name, kind: data.kinds[k], lat, lon, ele, region, town, symbol,
         score, key: norm([name, town, region].filter(Boolean).join(' ')),
       };
     });

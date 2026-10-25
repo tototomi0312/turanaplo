@@ -10,11 +10,12 @@
   const DIFFICULTY = ['Könnyű', 'Közepes', 'Nehéz', 'Nagyon nehéz'];
   const REPORT_TYPES = ['Lezárt / járhatatlan út', 'Hiányzó vagy rossz jelzés', 'Kidőlt fa, akadály',
     'Bezárt / megszűnt létesítmény', 'Új vagy változott útvonal', 'Egyéb'];
-  const FILTERS = [['Mind', null], ['Csúcs', ['peak']], ['Kilátó', ['tower', 'viewpoint']], ['Turistaház', ['alpine_hut', 'wilderness_hut']],
+  const FILTERS = [['Mind', null], ['Túraútvonal', ['route', 'trail']], ['Csúcs', ['peak']], ['Kilátó', ['tower', 'viewpoint']], ['Turistaház', ['alpine_hut', 'wilderness_hut']],
     ['Szikla, gerinc', ['ridge', 'cliff', 'rock', 'arch', 'saddle', 'gorge']], ['Barlang', ['cave_entrance']], ['Vízesés', ['waterfall']], ['Vár', ['castle']]];
   const KIND_COLOR = { peak: '#2f6b4f', tower: '#b5541c', viewpoint: '#b5541c', alpine_hut: '#7a4fa0', wilderness_hut: '#7a4fa0',
     cave_entrance: '#5c5c5c', waterfall: '#1f78b4', castle: '#8c5a2b',
-    ridge: '#6b7f3a', saddle: '#6b7f3a', cliff: '#7d6a55', rock: '#7d6a55', arch: '#7d6a55', gorge: '#7d6a55' };
+    ridge: '#6b7f3a', saddle: '#6b7f3a', cliff: '#7d6a55', rock: '#7d6a55', arch: '#7d6a55', gorge: '#7d6a55',
+    route: '#1c5fd1', trail: '#1c5fd1' };
 
   backBtn.innerHTML = Icons.back;
   backBtn.addEventListener('click', () => history.length > 1 ? history.back() : (location.hash = '#/'));
@@ -35,8 +36,10 @@
   const field = (label, ...kids) => h('div', { class: 'field' }, h('label', null, label), ...kids);
   const section = (title, ...kids) => h('section', { class: 'section' }, title ? h('h2', null, title) : null, ...kids);
 
-  function kindBadge(kind) {
+  function kindBadge(kind, symbol) {
     const b = ic(KindIcon[kind] || 'pin', 'badge');
+    const mark = symbol && UI.trailMark(symbol);
+    if (mark) { b.innerHTML = ''; b.append(mark); b.classList.add('has-mark'); }
     b.style.setProperty('--c', KIND_COLOR[kind] || '#2f6b4f');
     return b;
   }
@@ -44,7 +47,7 @@
   function placeCard(p, onClick) {
     const meta = [Places.KIND[p.kind] || 'Hely', p.town, p.region, p.ele ? `${Math.round(p.ele)} m` : null].filter(Boolean).join(' · ');
     return h('button', { class: 'place', type: 'button', onclick: () => onClick(p) },
-      kindBadge(p.kind),
+      kindBadge(p.kind, p.symbol),
       h('span', { class: 'place-body' }, h('strong', null, p.name), h('small', null, meta)),
       p.distance != null ? h('span', { class: 'place-dist' }, Geo.fmtKm(p.distance)) : null);
   }
@@ -88,6 +91,7 @@
     const input = h('input', { type: 'search', placeholder: 'Keress: Csóványos, Kékes, kilátó…', value: st.q, enterkeyhint: 'search' });
     const list = h('div', { class: 'places' });
     const count = h('p', { class: 'muted small' });
+    const onlineBox = h('div');
     const mapEl = h('div', { class: 'map explore-map', hidden: st.mode !== 'map' });
     const regions = [...await Catalog.regions()].sort((a, b) => a.localeCompare(b, 'hu'));
     const regionSel = h('select', { class: 'select', onchange: (e) => { st.region = e.target.value || null; refresh(); } },
@@ -110,12 +114,13 @@
       list.replaceChildren(...results.slice(0, st.limit).map((p) => placeCard(p, pick)),
         ...(results.length > st.limit ? [h('button', { class: 'btn ghost wide', onclick: () => { st.limit += 60; refresh(); } }, 'Továbbiak')] : []));
       if (!results.length) list.append(h('p', { class: 'empty' }, 'Nincs ilyen hely a beépített listában.'));
-      // The built-in list is a selection; the full OSM search is always one tap away.
-      if (st.q) list.append(h('button', { class: 'btn wide', onclick: () => onlineSearch(st.q) }, ic('search'), ` „${st.q}" keresése a teljes térképen`));
+      // The built-in list is a selection; the full OSM search is always one tap away (list and map mode).
+      onlineBox.replaceChildren(...(st.q ? [h('button', { class: 'btn wide', onclick: () => onlineSearch(st.q) }, ic('search'), ` „${st.q}" keresése a teljes térképen`)] : []));
       if (map) updateMapData();
     }
 
     async function onlineSearch(q) {
+      if (st.mode === 'map') modeSeg.querySelector('button').click(); // results are a list
       list.replaceChildren(h('p', { class: 'muted' }, 'Keresés…'));
       try {
         const res = await Places.search(q, st.near);
@@ -181,7 +186,7 @@
           refresh();
         } }, label))),
       h('div', { class: 'row-between' }, regionSel, modeSeg),
-      count, mapEl, list);
+      count, mapEl, list, onlineBox);
     list.hidden = st.mode === 'map';
     if (st.mode === 'map') { st.mode = 'list'; modeSeg.querySelectorAll('button')[1].click(); }
     refresh();
@@ -214,7 +219,7 @@
 
     render(
       mapEl,
-      h('div', { class: 'place-head' }, kindBadge(p.kind),
+      h('div', { class: 'place-head' }, kindBadge(p.kind, p.symbol),
         h('div', null, h('h1', { class: 'big-title' }, p.name),
           h('p', { class: 'muted' }, [Places.KIND[p.kind] || 'Hely', p.town, p.region, p.ele ? `${Math.round(p.ele)} m` : null].filter(Boolean).join(' · ')))),
       h('div', { class: 'tags' }, sm.avg ? h('span', { class: 'tag star' }, `★ ${sm.avg.toFixed(1).replace('.', ',')}`) : null,
@@ -249,7 +254,14 @@
 
     const map = MapKit.makeMap(mapEl, { center: [p.lon, p.lat], zoom: 13.5 });
     cleanup.push(() => map.remove());
-    MapKit.marker(map, p.lat, p.lon, { cls: 'pin-place', html: Icons[KindIcon[p.kind] || 'pin'] });
+    if (p.kind === 'route' || p.kind === 'trail') {
+      Places.trailGeometry(p).then((lines) => {
+        if (!lines.length) return;
+        const col = (p.symbol && { blue: '#1c5fd1', red: '#d22b2b', green: '#1f8a3a', yellow: '#d9a400' }[p.symbol.split(':')[0]]) || '#1c5fd1';
+        MapKit.drawLines(map, 'route', lines, col);
+        MapKit.fitPoints(map, lines.flat().map(([lon, lat]) => ({ lat, lon })), 30);
+      }).catch(() => { /* geometry is a bonus; the marker still shows the place */ });
+    } else MapKit.marker(map, p.lat, p.lon, { cls: 'pin-place', html: Icons[KindIcon[p.kind] || 'pin'] });
     reports.filter((r) => r.lat != null).forEach((r) => MapKit.marker(map, r.lat, r.lon, { cls: 'pin-report', html: Icons.flag, popup: r.type }));
 
     let alive = true; cleanup.push(() => (alive = false));

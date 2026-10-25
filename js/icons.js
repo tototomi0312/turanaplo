@@ -47,5 +47,5 @@
   window.KindIcon = { peak: 'peak', tower: 'tower', viewpoint: 'viewpoint', alpine_hut: 'hut', wilderness_hut: 'hut',
     shelter: 'hut', cave_entrance: 'cave', waterfall: 'waterfall', castle: 'castle', ruins: 'castle', spring: 'spring',
     own: 'pin', route: 'route', other: 'pin', picnic_site: 'pin',
-    ridge: 'peak', saddle: 'peak', cliff: 'rock', rock: 'rock', arch: 'rock', gorge: 'cave' };
+    ridge: 'peak', saddle: 'peak', cliff: 'rock', rock: 'rock', arch: 'rock', gorge: 'cave', trail: 'route' };
 })();

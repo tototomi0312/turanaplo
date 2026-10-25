@@ -128,6 +128,16 @@
       paint: { 'line-color': '#e8590c', 'line-width': 3, 'line-dasharray': [1.5, 2] } });
   }
 
+  // Extra line layer (e.g. a hiking route's geometry). lines: [[[lon, lat], ...], ...]
+  async function drawLines(map, id, lines, color = '#1f5c43') {
+    await map.ready;
+    const data = { type: 'Feature', properties: {}, geometry: { type: 'MultiLineString', coordinates: lines } };
+    if (map.getSource(id)) return map.getSource(id).setData(data);
+    map.addSource(id, { type: 'geojson', data });
+    map.addLayer({ id: id + '-casing', type: 'line', source: id, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': 7 } });
+    map.addLayer({ id, type: 'line', source: id, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': color, 'line-width': 4 } });
+  }
+
   function marker(map, lat, lon, opts = {}) {
     const el = document.createElement('div');
     el.className = 'mk ' + (opts.cls || '');
@@ -159,5 +169,5 @@
     map.fitBounds(b, { padding, maxZoom: 15, duration: 0 });
   }
 
-  window.MapKit = { makeMap, drawTrack, marker, meMarker, fitPoints, setLayer };
+  window.MapKit = { makeMap, drawTrack, drawLines, marker, meMarker, fitPoints, setLayer };
 })();

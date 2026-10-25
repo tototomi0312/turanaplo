@@ -32,6 +32,31 @@
     return span;
   }
 
+  // Hungarian trail mark from an OSM osmc:symbol ("waycolor:background:foreground", e.g.
+  // "blue:white:blue_cross"). Covers the common Hungarian shapes; anything else is a bar.
+  const MARK_COLORS = { blue: '#1c5fd1', red: '#d22b2b', green: '#1f8a3a', yellow: '#e8b400', black: '#222', orange: '#f08c00', purple: '#7b3fb0', brown: '#8b5a2b', white: '#fff' };
+  function trailMark(symbol) {
+    if (!symbol) return null;
+    const [, bg = 'white', fg = ''] = symbol.split(':');
+    const [fc, shape = 'bar'] = fg.split('_');
+    const c = MARK_COLORS[fc] || MARK_COLORS[symbol.split(':')[0]] || '#1c5fd1';
+    const shapes = {
+      bar: `<rect x="2" y="8" width="20" height="8" fill="${c}"/>`,
+      stripe: `<rect x="8" y="2" width="8" height="20" fill="${c}"/>`,
+      cross: `<path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z" fill="${c}"/>`,
+      triangle: `<path d="M12 3 21 20H3z" fill="${c}"/>`,
+      dot: `<circle cx="12" cy="12" r="7" fill="${c}"/>`,
+      circle: `<circle cx="12" cy="12" r="6.5" fill="none" stroke="${c}" stroke-width="3"/>`,
+      rectangle: `<rect x="5" y="5" width="14" height="14" fill="${c}"/>`,
+      L: `<path d="M5 3h5v13h9v5H5z" fill="${c}"/>`,
+      slash: `<path d="M17 2h5L7 22H2z" fill="${c}"/>`,
+    };
+    const span = document.createElement('span');
+    span.className = 'mark';
+    span.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22"><rect width="24" height="24" rx="3" fill="${MARK_COLORS[bg] || '#fff'}" stroke="#ccc"/>${shapes[shape] || shapes.bar}</svg>`;
+    return span;
+  }
+
   // Elevation profile as inline SVG. samples: [{dist, ele}]
   function elevationChart(samples) {
     const W = 600, H = 160, P = { l: 38, r: 8, t: 10, b: 22 };
@@ -77,5 +102,5 @@
     return new Date(ts).toLocaleDateString('hu-HU', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
-  window.UI = { h, toast, ic, elevationChart, resizePhoto, stars, fmtDate };
+  window.UI = { h, toast, ic, trailMark, elevationChart, resizePhoto, stars, fmtDate };
 })();

@@ -10,11 +10,12 @@
     wilderness_hut: 'Menedékház', shelter: 'Esőbeálló', cave_entrance: 'Barlang',
     spring: 'Forrás', waterfall: 'Vízesés', ruins: 'Rom', route: 'Turistaút', own: 'Saját hely',
     picnic_site: 'Pihenőhely', castle: 'Vár', ridge: 'Gerinc', cliff: 'Sziklafal', rock: 'Szikla',
-    arch: 'Sziklakapu', saddle: 'Nyereg', gorge: 'Szurdok', other: 'Hely',
+    arch: 'Sziklakapu', saddle: 'Nyereg', gorge: 'Szurdok', route: 'Túraútvonal', trail: 'Ösvény', other: 'Hely',
   };
 
   function kindOf(tags) {
-    if (tags.route === 'hiking') return 'route';
+    if (tags.route === 'hiking' || tags.route === 'foot') return 'route';
+    if (/^(path|track|footway|steps|bridleway)$/.test(tags.highway || '')) return 'trail';
     if (tags.natural === 'peak') return 'peak';
     if (tags.man_made === 'tower') return 'tower';
     if (tags.tourism) return KIND[tags.tourism] ? tags.tourism : 'other';
@@ -102,23 +103,44 @@
   }
 
   function fromNominatim(r) {
+    const a = r.address || {};
     return {
       id: `osm:${r.osm_type}/${r.osm_id}`, source: 'osm', name: r.name || r.display_name.split(',')[0],
       kind: kindOf({ [r.category]: r.type }), lat: +r.lat, lon: +r.lon, ele: null,
-      detail: r.display_name.split(',').slice(1, 3).join(',').trim(),
+      town: a.village || a.town || a.city || a.municipality || null,
     };
   }
 
+  // Line geometry of a hiking route (relation) or a named trail (ways with the same name nearby).
+  async function trailGeometry(p) {
+    const cached = await DB.kvGet('geom:' + p.id);
+    if (cached) return cached;
+    const [type, id] = p.id.replace('osm:', '').split('/');
+    const q = type === 'relation'
+      ? `[out:json][timeout:25];relation(${id});way(r);out geom;`
+      : `[out:json][timeout:25];way(around:4000,${p.lat},${p.lon})[name=${JSON.stringify(p.name)}];out geom;`;
+    const res = await fetch(OVERPASS, { method: 'POST', body: 'data=' + encodeURIComponent(q),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(30000) });
+    if (!res.ok) throw new Error('Overpass ' + res.status);
+    const lines = (await res.json()).elements.filter((e) => e.geometry).map((e) => e.geometry.map((g) => [g.lon, g.lat]));
+    if (lines.length) await DB.kvSet('geom:' + p.id, lines);
+    return lines;
+  }
+
   async function search(text, near) {
-    const params = new URLSearchParams({ q: text, format: 'jsonv2', limit: '15', countrycodes: 'hu', 'accept-language': 'hu' });
+    const params = new URLSearchParams({ q: text, format: 'jsonv2', limit: '25', countrycodes: 'hu', 'accept-language': 'hu', addressdetails: '1' });
     const res = await fetch(`${NOMINATIM}?${params}`, { signal: AbortSignal.timeout(15000) });
     if (!res.ok) throw new Error('Nominatim ' + res.status);
     const json = await res.json();
-    return json.map((r) => {
+    // A trail is often mapped as many ways with the same name: show it once per area.
+    const out = [];
+    for (const r of json) {
       const p = fromNominatim(r);
+      if (out.some((q) => q.name === p.name && Geo.haversine(q, p) < 3000)) continue;
       if (near) p.distance = Geo.haversine(near, p);
-      return p;
-    });
+      out.push(p);
+    }
+    return out;
   }
 
   // Car parks around a destination. Same parallel Overpass + Nominatim pattern as nearby().
@@ -182,5 +204,5 @@
     return merged;
   }
 
-  window.Places = { KIND, nearby, search, elevations, remember, parking };
+  window.Places = { KIND, nearby, search, elevations, remember, parking, trailGeometry };
 })();
