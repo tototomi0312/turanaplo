@@ -1,10 +1,10 @@
 // App-shell cache so the app opens without signal on the trail. Map tiles are
 // cached opportunistically (only what was already viewed), capped in size.
-const SHELL = 'turanaplo-shell-v3';
+const SHELL = 'turanaplo-shell-v4';
 const TILES = 'turanaplo-tiles-v1';
 const MAX_TILES = 1500;
 const FILES = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'data/places-hu.json',
-  'js/icons.js', 'js/geo.js', 'js/db.js', 'js/exif.js', 'js/places.js', 'js/catalog.js', 'js/heading.js', 'js/tracker.js',
+  'js/icons.js', 'js/geo.js', 'js/db.js', 'js/exif.js', 'js/places.js', 'js/catalog.js', 'js/heading.js', 'js/nav.js', 'js/tracker.js',
   'js/ui.js', 'js/map.js', 'js/app.js',
   'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js'];

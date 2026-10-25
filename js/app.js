@@ -110,6 +110,13 @@
     async function refresh() {
       const kinds = FILTERS[st.filter][1];
       results = await Catalog.query({ q: st.q, kinds: kinds ? new Set(kinds) : null, near: st.near, region: st.region });
+      // Own places and routes are not in the catalogue; match them the same way and list them first.
+      const words = Catalog.norm(st.q).split(' ').filter(Boolean);
+      const own = (await DB.all('places')).filter((p) => p.source === 'own' && !p.id.startsWith('own:demo') &&
+        (!kinds || kinds.includes(p.kind)) && (!st.region || p.region === st.region) &&
+        words.every((w) => Catalog.norm([p.name, p.town, p.region].filter(Boolean).join(' ')).includes(w)));
+      if (st.near) own.forEach((p) => (p.distance = Geo.haversine(st.near, p)));
+      results = [...own, ...results];
       count.textContent = `${results.length.toLocaleString('hu-HU')} hely` + (st.near ? ', távolság szerint' : '');
       list.replaceChildren(...results.slice(0, st.limit).map((p) => placeCard(p, pick)),
         ...(results.length > st.limit ? [h('button', { class: 'btn ghost wide', onclick: () => { st.limit += 60; refresh(); } }, 'Továbbiak')] : []));
@@ -222,6 +229,8 @@
       h('div', { class: 'place-head' }, kindBadge(p.kind, p.symbol),
         h('div', null, h('h1', { class: 'big-title' }, p.name),
           h('p', { class: 'muted' }, [Places.KIND[p.kind] || 'Hely', p.town, p.region, p.ele ? `${Math.round(p.ele)} m` : null].filter(Boolean).join(' · ')))),
+      p.unofficial ? h('p', { class: 'unofficial' }, ic('flag'), ` Nem hivatalos útvonal · készítette: ${p.author || 'ismeretlen'}`,
+        p.distance ? ` · ${Geo.fmtKm(p.distance)}` : '') : null,
       h('div', { class: 'tags' }, sm.avg ? h('span', { class: 'tag star' }, `★ ${sm.avg.toFixed(1).replace('.', ',')}`) : null,
         tag(sm.kid, 'gyerekbarát'), tag(sm.dog, 'kutyabarát'), sm.difficulty ? h('span', { class: 'tag' }, sm.difficulty) : null),
       h('div', { class: 'actions' },
@@ -263,6 +272,7 @@
       }).catch(() => { /* geometry is a bonus; the marker still shows the place */ });
     } else MapKit.marker(map, p.lat, p.lon, { cls: 'pin-place', html: Icons[KindIcon[p.kind] || 'pin'] });
     reports.filter((r) => r.lat != null).forEach((r) => MapKit.marker(map, r.lat, r.lon, { cls: 'pin-report', html: Icons.flag, popup: r.type }));
+    DB.kvGet('car').then((car) => { if (car) MapKit.marker(map, car.lat, car.lon, { cls: 'pin-car', html: Icons.car, popup: 'Itt parkol az autó' }); });
 
     let alive = true; cleanup.push(() => (alive = false));
     let parkMarkers = [], fitted = false;
@@ -314,7 +324,8 @@
   }
 
   const appleMaps = (lat, lon) => `https://maps.apple.com/?daddr=${lat},${lon}&dirflg=d`;
-  const stripPlace = (p) => ({ id: p.id, source: p.source, name: p.name, kind: p.kind, lat: p.lat, lon: p.lon, ele: p.ele ?? null, region: p.region ?? null, town: p.town ?? null });
+  const stripPlace = (p) => ({ id: p.id, source: p.source, name: p.name, kind: p.kind, lat: p.lat, lon: p.lon, ele: p.ele ?? null,
+    region: p.region ?? null, town: p.town ?? null, symbol: p.symbol ?? null });
 
   async function placeSummary(placeId) {
     const hikes = (await DB.all('hikes')).filter((x) => x.place?.id === placeId && x.status === 'finished');
@@ -413,9 +424,91 @@
       } });
     cleanup.push(() => map.remove());
     if (map.locateBtn) map.locateBtn.classList.add('on');
-    map.on('dragstart', () => { if (follow) { follow = 0; map.locateBtn?.classList.remove('on', 'heading'); } });
+    // Like a car GPS: panning frees the map, one tap brings it back and follows again.
+    let lastFollow = 1;
+    const recenter = h('button', { class: 'recenter', hidden: true, onclick: (e) => {
+      e.stopPropagation();
+      follow = lastFollow; recenter.hidden = true;
+      map.locateBtn?.classList.add('on'); map.locateBtn?.classList.toggle('heading', follow === 2);
+      refresh(true);
+    } }, ic('locate'), ' Vissza hozzám');
+    mapEl.append(recenter);
+    map.on('dragstart', () => {
+      if (follow) { lastFollow = follow; follow = 0; map.locateBtn?.classList.remove('on', 'heading'); }
+      recenter.hidden = false;
+    });
     const me = MapKit.meMarker(map);
     let drawn = -1;
+
+    // Route navigation, when the hike was started on a hiking route or trail.
+    const navBox = h('div', { class: 'nav-card', hidden: true });
+    mapEl.after(navBox);
+    let route = hk.navRoute ? Nav.build(hk.navRoute) : null, proj = null, offCount = 0, drawnIdx = -1;
+    const navColor = (hk.place?.symbol && { blue: '#1c5fd1', red: '#d22b2b', green: '#1f8a3a', yellow: '#d9a400' }[hk.place.symbol.split(':')[0]]) || '#1c5fd1';
+    if (!route && (hk.place?.kind === 'route' || hk.place?.kind === 'trail')) {
+      navBox.hidden = false; navBox.textContent = 'Útvonal betöltése…';
+      (async () => {
+        try {
+          const lines = await Places.trailGeometry(hk.place);
+          const cur = Tracker.hike; if (!cur) return;
+          const pos = cur.lastFix?.lat != null ? cur.lastFix : cur.points[cur.points.length - 1] || hk.place;
+          const coords = Nav.chain(lines, pos);
+          if (coords.length < 2) { navBox.textContent = 'Ehhez a helyhez nincs útvonal-vonal.'; return; }
+          cur.navRoute = coords; route = Nav.build(coords);
+          refresh(true);
+        } catch (e) {
+          DB.logError('nav', e);
+          navBox.textContent = 'Az útvonalat nem sikerült betölteni (nincs net, vagy a térképszerver lassú).';
+        }
+      })();
+    }
+
+    function updateNav(cur, fix) {
+      if (!route || !fix) return;
+      proj = Nav.project(route, fix, proj ? proj.i : 0);
+      if (!proj) return;
+      const remaining = Math.max(0, route.total - proj.along);
+      offCount = proj.off > 50 ? offCount + 1 : 0;
+      if (proj.i !== drawnIdx) { drawnIdx = proj.i; MapKit.drawLines(map, 'nav', [Nav.ahead(route, proj)], navColor); }
+      const walked = Geo.trackDistance(cur.points);
+      const paused = cur.pauses.reduce((a, p) => a + (p.to - p.from), 0) + (cur.pausedAt ? Date.now() - cur.pausedAt : 0);
+      const moving = Date.now() - cur.startedAt - paused;
+      const speed = walked > 300 && moving > 0 ? walked / moving : 4000 / 3600000; // m/ms; 4 km/h until we know better
+      navBox.hidden = false;
+      navBox.replaceChildren(...[
+        remaining < 40 ? h('strong', { class: 'arrived' }, ic('flag'), ' Megérkeztél a célhoz!')
+          : h('div', { class: 'nav-main' }, h('span', null, 'Célig'), h('b', null, Geo.fmtKm(remaining)),
+            h('span', { class: 'muted' }, `kb. ${Geo.fmtDur(remaining / speed)}`)),
+        offCount >= 2 ? h('p', { class: 'warn' }, `Letértél a kijelölt útról (${Math.round(proj.off)} m). Az útvonal színes vonallal látszik.`) : null,
+      ].filter(Boolean));
+    }
+
+    // Parked car: one per user, kept between hikes until cleared.
+    let car = null, carMarker = null;
+    const carRow = h('div', { class: 'car-row' });
+    async function drawCar() {
+      car = await DB.kvGet('car');
+      carMarker?.remove(); carMarker = null;
+      if (car) carMarker = MapKit.marker(map, car.lat, car.lon, { cls: 'pin-car', html: Icons.car, popup: 'Itt parkol az autó' });
+      const fix = Tracker.hike?.lastFix;
+      carRow.replaceChildren(...(car ? [
+        h('a', { class: 'chip', href: `https://maps.apple.com/?daddr=${car.lat},${car.lon}&dirflg=w`, target: '_blank', rel: 'noopener' },
+          ic('car'), fix?.lat != null ? ` Autóhoz: ${Geo.fmtKm(Geo.haversine(fix, car))}` : ' Autóhoz'),
+        h('button', { class: 'chip', onclick: async () => { if (confirm('Törlöd a parkolóhelyet?')) { await DB.kvDel('car'); drawCar(); } } }, 'Parkoló törlése'),
+      ] : [
+        h('button', { class: 'chip', onclick: async () => {
+          const f = Tracker.hike?.lastFix;
+          let pos = f?.lat != null ? f : null;
+          if (!pos) { try { pos = await getPosition(5000); } catch (e) { return toast(geoErrorText(e), 5000); } }
+          await DB.kvSet('car', { lat: pos.lat, lon: pos.lon, t: Date.now(), hikeId: Tracker.hike?.id || null });
+          toast('Megjegyeztem, hol parkoltok.'); drawCar();
+        } }, ic('car'), ' Itt parkoltam'),
+      ]));
+    }
+    navBox.after(carRow);
+    drawCar();
+    const carTimer = setInterval(() => { if (car) drawCar(); }, 15000);
+    cleanup.push(() => clearInterval(carTimer));
 
     // Start the compass on the first tap anywhere (iOS needs a gesture for the permission prompt).
     const firstTap = () => { Heading.start(); };
@@ -446,6 +539,7 @@
       warn.hidden = !msgs.length; warn.textContent = msgs.join(' ');
       const fix = cur.lastFix?.lat != null ? cur.lastFix : last;
       if (fix) me.setLngLat([fix.lon, fix.lat]);
+      updateNav(cur, fix);
       if (pts.length !== drawn || force) {
         drawn = pts.length;
         MapKit.drawTrack(map, pts);
@@ -585,6 +679,7 @@
         h('p', { class: 'muted small' }, 'A megosztás a szerveres verzióval indul. Addig minden csak ezen a telefonon van.')),
 
       hk.place ? h('a', { class: 'btn ghost wide', href: `#/place/${encodeURIComponent(hk.place.id)}` }, ic('pin'), ` ${hk.place.name} adatlapja`) : null,
+      h('button', { class: 'btn ghost wide', onclick: () => saveAsRoute(hk) }, ic('route'), ' Mentés saját útvonalként'),
       h('div', { class: 'actions' },
         h('button', { class: 'btn', onclick: () => exportGpx(hk) }, ic('download'), ' GPX'),
         h('button', { class: 'btn danger', onclick: async () => {
@@ -626,6 +721,28 @@
   }
 
   // Full-screen viewer: swipe or arrows to page, close button, swipe down or Esc to close.
+  // A walked track becomes a route others could follow later. Marked unofficial with
+  // the author's name, and stored like OSM routes (place + 'geom:' lines), so
+  // navigation and (later) server sharing work the same way.
+  async function saveAsRoute(hk) {
+    if (hk.points.length < 2) return toast('Ehhez a túrához nincs útvonal.');
+    const st = await DB.settings();
+    const name = prompt('Az útvonal neve:', `${hk.place?.name || 'Túra'} – saját útvonal`);
+    if (!name) return;
+    const lines = [];
+    let cur = [];
+    hk.points.forEach((p, i) => { if (i && p.segStart) { lines.push(cur); cur = []; } cur.push([p.lon, p.lat]); });
+    lines.push(cur);
+    const first = hk.points[0];
+    const place = { id: 'own:route-' + DB.uid(), source: 'own', kind: 'route', name: name.trim(), lat: first.lat, lon: first.lon, ele: null,
+      region: hk.place?.region || null, town: hk.place?.town || null, unofficial: true, author: st.name || 'Én',
+      createdAt: Date.now(), fromHike: hk.id, distance: hk.stats?.distance ?? Geo.trackDistance(hk.points), visibility: 'private' };
+    await DB.put('places', place);
+    await DB.kvSet('geom:' + place.id, lines);
+    toast('Elmentettem útvonalként. A Felfedezésben is megtalálod.');
+    go(`#/place/${encodeURIComponent(place.id)}`);
+  }
+
   function openPhoto(urls, start = 0) {
     let i = start, x0 = null, y0 = 0;
     const img = h('img', { alt: '' });
@@ -818,7 +935,9 @@
     const errors = (await DB.kvGet('errors')) || [];
 
     render(
-      section(null, field('Testmagasság (a lépésszám becsléséhez)', height)),
+      section(null, field('Testmagasság (a lépésszám becsléséhez)', height),
+        field('A neved (a saját útvonalaidon ez látszik szerzőként)', h('input', { type: 'text', value: st.name || '', placeholder: 'pl. Tomi',
+          onchange: async (e) => { st.name = e.target.value.trim() || null; await DB.saveSettings(st); toast('Mentve.'); } }))),
       section('Adatok',
         h('p', { class: 'muted small' }, 'Minden adat (túrák, fotók, vélemények) most csak ezen a telefonon van. Időnként mentsd le, és tedd a Fájlok appba vagy Dropboxba.',
           persisted === false ? ' A Safari hosszabb használaton kívüli idő után törölheti a weboldalak adatait, ezért a mentés most különösen fontos.' : ''),
