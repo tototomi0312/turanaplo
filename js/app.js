@@ -12,6 +12,9 @@
 
   backBtn.addEventListener('click', () => history.length > 1 ? history.back() : (location.hash = '#/'));
 
+  // replaceChildren would print null/false as text, so drop them first.
+  const render = (...kids) => view.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
+
   function setTitle(t, back = true) { titleEl.textContent = t; backBtn.hidden = !back; }
   const go = (hash) => { location.hash = hash; };
 
@@ -67,7 +70,7 @@
     setTitle('Túranapló', false);
     const active = Tracker.hike;
     const hikes = (await DB.all('hikes')).filter((x) => x.status === 'finished').sort((a, b) => b.startedAt - a.startedAt);
-    view.replaceChildren(
+    render(
       active ? h('a', { class: 'banner', href: '#/track' }, '● Folyamatban: ', active.place?.name || 'Túra', ' › folytatás') : null,
       !active ? h('a', { class: 'btn big primary', href: '#/start' }, 'Új túra indítása') : null,
       h('div', { class: 'links' }, h('a', { href: '#/places' }, 'Helyek'), h('a', { href: '#/settings' }, 'Beállítások')),
@@ -122,7 +125,7 @@
       pick({ id: 'own:' + DB.uid(), source: 'own', name: name.trim(), kind: 'own', lat: here.lat, lon: here.lon, ele: null });
     } }, '+ Új hely itt');
 
-    view.replaceChildren(form, mapEl, status, list,
+    render(form, mapEl, status, list,
       h('div', { class: 'actions' }, own, h('button', { class: 'btn ghost', onclick: () => pick(null) }, 'Indítás hely nélkül')));
 
     map = UI.makeMap(mapEl, (await DB.settings()).mapLayer);
@@ -164,7 +167,7 @@
       e.target.value = ''; toast('Fotó mentve.'); refresh();
     } });
 
-    view.replaceChildren(mapEl,
+    render(mapEl,
       h('div', { class: 'stats live' },
         h('div', null, h('span', null, 'Táv'), st.dist), h('div', null, h('span', null, 'Idő'), st.time),
         h('div', null, h('span', null, 'Magasság'), st.alt), h('div', null, h('span', null, 'GPS'), st.acc)),
@@ -265,7 +268,7 @@
     if (hk.status === 'active') return go('#/track');
     setTitle(hk.place?.name || 'Túra');
     if (!hk.stats || hk.stats.elevationSource === 'gps' && navigator.onLine) {
-      view.replaceChildren(h('p', { class: 'muted' }, 'Útvonal feldolgozása, magasságadatok lekérése…'));
+      render(h('p', { class: 'muted' }, 'Útvonal feldolgozása, magasságadatok lekérése…'));
       hk = await computeStats(hk);
     }
     const s = hk.stats;
@@ -293,7 +296,7 @@
       oninput: (e) => { hk.review.text = e.target.value; saveSoon(); } });
     textArea.value = hk.review.text || '';
 
-    view.replaceChildren(
+    render(
       mapEl,
       h('div', { class: 'stats' },
         h('div', null, h('span', null, 'Táv'), h('b', null, Geo.fmtKm(s.distance))),
@@ -413,7 +416,7 @@
         h('div', { class: 'muted' }, `${sm.hikes.length} túra`, sm.avg ? ` · ${'★'.repeat(Math.round(sm.avg))}` : ''),
         h('div', { class: 'tags' }, tag(sm.kid, 'gyerekbarát'), tag(sm.dog, 'kutyabarát'), sm.difficulty ? h('span', { class: 'tag' }, sm.difficulty) : null));
     }));
-    view.replaceChildren(rows.length ? h('div', { class: 'list' }, rows) : h('p', { class: 'muted' }, 'Még nincs elmentett hely. A túra indításakor választott helyek ide kerülnek.'));
+    render(rows.length ? h('div', { class: 'list' }, rows) : h('p', { class: 'muted' }, 'Még nincs elmentett hely. A túra indításakor választott helyek ide kerülnek.'));
   }
 
   async function placeView(id) {
@@ -436,7 +439,7 @@
         toast('Jelzés mentve.'); placeView(id);
       } }, 'Jelzés mentése'));
 
-    view.replaceChildren(mapEl,
+    render(mapEl,
       h('p', { class: 'muted' }, Places.KIND[p.kind] || 'Hely', p.ele ? ` · ${Math.round(p.ele)} m` : '',
         p.source === 'osm' ? ' · forrás: OpenStreetMap' : ' · saját hely'),
       h('div', { class: 'tags' }, sm.avg ? h('span', { class: 'tag' }, `${sm.avg.toFixed(1).replace('.', ',')} ★`) : null,
@@ -524,7 +527,7 @@
     let persisted = null;
     try { persisted = navigator.storage?.persisted ? await navigator.storage.persisted() : null; } catch (e) { /* not supported */ }
 
-    view.replaceChildren(
+    render(
       h('div', { class: 'field' }, h('label', null, 'Testmagasság (a lépésszám becsléséhez)'), height),
       choice('Alap térkép', ['Turista', 'Alap'], st.mapLayer === 'osm' ? 'Alap' : 'Turista',
         async (v) => { st.mapLayer = v === 'Alap' ? 'osm' : 'topo'; await DB.saveSettings(st); }),
@@ -572,7 +575,7 @@
       }
     } catch (err) {
       console.error(err);
-      view.replaceChildren(h('p', { class: 'warn' }, 'Hiba történt: ', err.message || String(err)), h('a', { class: 'btn', href: '#/' }, 'Kezdőlap'));
+      render(h('p', { class: 'warn' }, 'Hiba történt: ', err.message || String(err)), h('a', { class: 'btn', href: '#/' }, 'Kezdőlap'));
     }
   }
 
