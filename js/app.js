@@ -222,6 +222,7 @@
       h('div', { class: 'actions' },
         h('button', { class: 'btn primary', onclick: () => startHike(p) }, ic('play'), ' Indítás itt'),
         h('a', { class: 'btn', href: appleMaps(p.lat, p.lon), target: '_blank', rel: 'noopener' }, ic('car'), ' Odavezetés')),
+      wishPanel(p),
       section('Parkolás a közelben', parkList,
         h('p', { class: 'muted small' }, 'Forrás: OpenStreetMap. A díjat és a nyitva tartást a helyszínen ellenőrizd.')),
       section('Túráim itt',
@@ -271,6 +272,33 @@
     }).catch(() => {
       if (alive && !parkMarkers.length) parkList.replaceChildren(h('p', { class: 'muted' }, 'A parkolók nem töltődtek be (nincs net, vagy a térképszerver lassú).'));
     });
+  }
+
+  // Bucket-list toggle with an optional planned date.
+  function wishPanel(p) {
+    const box = h('div', { class: 'wish' });
+    const save = async (wish) => {
+      const rec = Object.assign((await DB.get('places', p.id)) || stripPlace(p), { savedAt: Date.now() });
+      if (wish) rec.wish = wish; else delete rec.wish;
+      await DB.put('places', rec);
+      p.wish = rec.wish;
+      draw();
+    };
+    function draw() {
+      if (!p.wish) {
+        box.replaceChildren(h('button', { class: 'btn ghost wide', onclick: () => save({ addedAt: Date.now(), date: null }).then(() => toast('Felkerült a bakancslistára.')) },
+          ic('flag'), ' Bakancslistára'));
+        return;
+      }
+      const date = h('input', { type: 'date', value: p.wish.date || '', min: today(), onchange: (e) => save({ ...p.wish, date: e.target.value || null }) });
+      box.replaceChildren(h('div', { class: 'panel wish-on' },
+        h('div', { class: 'card-top' }, h('strong', null, ic('check', 'ok-ic'), ' A bakancslistádon'),
+          h('button', { class: 'linkbtn danger', onclick: () => save(null).then(() => toast('Levettem a bakancslistáról.')) }, 'Levétel')),
+        field('Mikor mennétek? (nem kötelező)', date),
+        p.wish.date ? h('button', { class: 'btn wide', onclick: () => exportIcs(p) }, ic('calendar'), ' Naptárba') : null));
+    }
+    draw();
+    return box;
   }
 
   const appleMaps = (lat, lon) => `https://maps.apple.com/?daddr=${lat},${lon}&dirflg=d`;
@@ -513,7 +541,11 @@
 
     render(
       mapEl,
-      h('p', { class: 'muted small date' }, UI.fmtDate(hk.startedAt)),
+      h('div', { class: 'row-between' }, h('p', { class: 'muted small date' }, UI.fmtDate(hk.startedAt)),
+        h('button', { class: 'fav' + (hk.favorite ? ' on' : ''), 'aria-label': 'Kedvenc', onclick: async (e) => {
+          hk.favorite = !hk.favorite; e.currentTarget.classList.toggle('on', hk.favorite);
+          await DB.put('hikes', hk); toast(hk.favorite ? 'Kedvencek közé tettem.' : 'Kivettem a kedvencek közül.');
+        } }, ic('heart'), ' Kedvenc')),
       h('div', { class: 'tiles' },
         tile('distance', 'Táv', Geo.fmtKm(s.distance)),
         tile('clock', 'Mozgásban', Geo.fmtDur(s.movingMs)),
@@ -565,10 +597,11 @@
     async function renderPhotos() {
       const photos = (await DB.byIndex('photos', 'hikeId', hk.id)).sort((a, b) => a.takenAt - b.takenAt);
       photoMarkers.forEach((m) => m.remove()); photoMarkers = [];
-      photosEl.replaceChildren(...photos.map((p) => {
-        const url = URL.createObjectURL(DB.photoBlob(p)); urls.push(url);
-        if (p.lat != null) photoMarkers.push(MapKit.marker(map, p.lat, p.lon, { cls: 'pin-photo', html: `<img src="${url}" alt="">`, onClick: () => openPhoto(url) }));
-        const img = h('img', { src: url, loading: 'lazy', alt: '', onclick: () => openPhoto(url) });
+      const gallery = photos.map((p) => { const u = URL.createObjectURL(DB.photoBlob(p)); urls.push(u); return u; });
+      photosEl.replaceChildren(...photos.map((p, i) => {
+        const url = gallery[i];
+        if (p.lat != null) photoMarkers.push(MapKit.marker(map, p.lat, p.lon, { cls: 'pin-photo', html: `<img src="${url}" alt="">`, onClick: () => openPhoto(gallery, i) }));
+        const img = h('img', { src: url, loading: 'lazy', alt: '', onclick: () => openPhoto(gallery, i) });
         img.addEventListener('error', () => DB.logError('photo-display', `${p.id} ${p.data ? 'arraybuffer' : 'blob'} ${p.width}x${p.height}`));
         return h('figure', null, img,
           h('button', { class: 'x', 'aria-label': 'Fotó törlése', onclick: async () => {
@@ -580,8 +613,34 @@
     renderPhotos();
   }
 
-  function openPhoto(url) {
-    const ov = h('div', { class: 'overlay', onclick: () => ov.remove() }, h('img', { src: url, alt: '' }));
+  // Full-screen viewer: swipe or arrows to page, close button, swipe down or Esc to close.
+  function openPhoto(urls, start = 0) {
+    let i = start, x0 = null, y0 = 0;
+    const img = h('img', { alt: '' });
+    const counter = h('span', { class: 'ov-count' });
+    const step = (d) => { i = (i + d + urls.length) % urls.length; show(); };
+    const prev = h('button', { class: 'ov-nav prev', 'aria-label': 'Előző kép', onclick: (e) => { e.stopPropagation(); step(-1); } }, ic('back'));
+    const next = h('button', { class: 'ov-nav next', 'aria-label': 'Következő kép', onclick: (e) => { e.stopPropagation(); step(1); } }, ic('next'));
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); else if (e.key === 'ArrowLeft') step(-1); else if (e.key === 'ArrowRight') step(1); };
+    function show() {
+      img.src = urls[i];
+      counter.textContent = urls.length > 1 ? `${i + 1} / ${urls.length}` : '';
+      prev.hidden = next.hidden = urls.length < 2;
+    }
+    const ov = h('div', { class: 'overlay', onclick: close }, img, prev, next, counter,
+      h('button', { class: 'ov-close', 'aria-label': 'Bezárás', onclick: (e) => { e.stopPropagation(); close(); } }, ic('close')));
+    img.addEventListener('click', (e) => e.stopPropagation());
+    ov.addEventListener('touchstart', (e) => { if (e.touches.length === 1) { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; } }, { passive: true });
+    ov.addEventListener('touchend', (e) => {
+      if (x0 == null) return;
+      const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+      x0 = null;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) step(dx < 0 ? 1 : -1);
+      else if (dy > 100) close();
+    });
+    document.addEventListener('keydown', onKey);
+    show();
     document.body.append(ov);
   }
 
@@ -604,39 +663,85 @@
   }
 
   // ---------- my hikes ----------
+  let hikesFilter = 'all';
+  const hikeCard = (x) => h('a', { class: 'card hike', href: `#/hike/${x.id}` },
+    h('div', { class: 'card-top' }, h('strong', null, x.favorite ? ic('heart', 'heart-ic') : null, x.place?.name || 'Túra'),
+      h('span', { class: 'muted small' }, UI.fmtDate(x.startedAt))),
+    h('div', { class: 'muted' }, hikeLine(x)),
+    x.review?.stars ? h('div', { class: 'stars small' }, '★'.repeat(x.review.stars)) : null);
+
   async function hikes() {
     setTitle('Túráim', false);
     const active = Tracker.hike;
-    const list = (await DB.all('hikes')).filter((x) => x.status === 'finished').sort((a, b) => b.startedAt - a.startedAt);
-    const total = list.reduce((a, x) => a + (x.stats?.distance ?? Geo.trackDistance(x.points)), 0);
-    const up = list.reduce((a, x) => a + (x.stats?.up || 0), 0);
+    const all = (await DB.all('hikes')).filter((x) => x.status === 'finished').sort((a, b) => b.startedAt - a.startedAt);
+    const list = hikesFilter === 'fav' ? all.filter((x) => x.favorite) : all;
+    const total = all.reduce((a, x) => a + (x.stats?.distance ?? Geo.trackDistance(x.points)), 0);
+    const up = all.reduce((a, x) => a + (x.stats?.up || 0), 0);
     render(
       active ? h('a', { class: 'banner', href: '#/track' }, h('span', { class: 'pulse' }), 'Folyamatban: ', active.place?.name || 'Túra', ' ›') : null,
-      list.length ? h('div', { class: 'summary' },
-        h('div', null, h('b', null, list.length), h('span', null, 'túra')),
+      all.length ? h('div', { class: 'summary' },
+        h('div', null, h('b', null, all.length), h('span', null, 'túra')),
         h('div', null, h('b', null, Geo.fmtKm(total)), h('span', null, 'összesen')),
         h('div', null, h('b', null, `${Math.round(up)} m`), h('span', null, 'emelkedés'))) : null,
-      list.length ? h('div', { class: 'list' }, list.map((x) =>
-        h('a', { class: 'card hike', href: `#/hike/${x.id}` },
-          h('div', { class: 'card-top' }, h('strong', null, x.place?.name || 'Túra'), h('span', { class: 'muted small' }, UI.fmtDate(x.startedAt))),
-          h('div', { class: 'muted' }, hikeLine(x)),
-          x.review?.stars ? h('div', { class: 'stars small' }, '★'.repeat(x.review.stars)) : null)))
-        : h('div', { class: 'empty' }, ic('book', 'big-ic'), h('p', null, 'Még nincs túrád.'),
-          h('p', { class: 'muted small' }, 'Válassz helyet a Felfedezésben, vagy indíts egyet a középső gombbal. A Beállításokban demó túrát is nézhetsz.')));
+      all.length ? h('div', { class: 'row-between' }, seg([['Mind', 'all'], ['Kedvencek', 'fav']], hikesFilter, (v) => { hikesFilter = v || 'all'; hikes(); }, 'small')) : null,
+      list.length ? h('div', { class: 'list' }, list.map(hikeCard))
+        : all.length ? h('p', { class: 'muted' }, 'Még nincs kedvenc túrád. A túra oldalán a szívvel jelölheted meg.')
+          : h('div', { class: 'empty' }, ic('book', 'big-ic'), h('p', null, 'Még nincs túrád.'),
+            h('p', { class: 'muted small' }, 'Válassz helyet a Felfedezésben, vagy indíts egyet a középső gombbal. A Beállításokban demó túrát is nézhetsz.')));
   }
 
-  // ---------- my places ----------
-  async function myPlaces() {
-    setTitle('Helyeim', false);
-    const places = (await DB.all('places')).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
-    const rows = await Promise.all(places.map(async (p) => {
-      const sm = await placeSummary(p.id);
-      const card = placeCard(p, () => go(`#/place/${encodeURIComponent(p.id)}`));
-      card.querySelector('small').textContent += ` · ${sm.hikes.length} túra` + (sm.avg ? ` · ★ ${sm.avg.toFixed(1).replace('.', ',')}` : '');
+  // ---------- bucket list ----------
+  const fmtDay = (d) => new Date(d + 'T12:00:00').toLocaleDateString('hu-HU', { month: 'long', day: 'numeric', weekday: 'short' });
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  async function bucketList() {
+    setTitle('Bakancslista', false);
+    // Saved records may predate the catalogue fields (town, region, ele): merge them in.
+    const places = await Promise.all((await DB.all('places')).map((p) => findPlace(p.id)));
+    const hikesAll = (await DB.all('hikes')).filter((x) => x.status === 'finished');
+    const visitedIds = new Set(hikesAll.map((x) => x.place?.id).filter(Boolean));
+    const open = (p) => go(`#/place/${encodeURIComponent(p.id)}`);
+    const planned = places.filter((p) => p.wish?.date).sort((a, b) => a.wish.date.localeCompare(b.wish.date));
+    const wishes = places.filter((p) => p.wish && !p.wish.date).sort((a, b) => b.wish.addedAt - a.wish.addedAt);
+    const favs = hikesAll.filter((x) => x.favorite).sort((a, b) => b.startedAt - a.startedAt);
+    const visited = places.filter((p) => visitedIds.has(p.id) || (p.source === 'own' && !p.wish));
+
+    const plannedCard = (p) => {
+      const card = placeCard(p, open);
+      const past = p.wish.date < today();
+      card.querySelector('.place-dist')?.remove();
+      card.append(h('span', { class: 'date-chip' + (past ? ' past' : '') }, fmtDay(p.wish.date)));
       return card;
-    }));
-    render(rows.length ? h('div', { class: 'places' }, rows)
-      : h('div', { class: 'empty' }, ic('pin', 'big-ic'), h('p', null, 'Itt lesznek a helyek, ahol jártál, és amiket te vettél fel.')));
+    };
+
+    const empty = !planned.length && !wishes.length && !favs.length && !visited.length;
+    render(
+      empty ? h('div', { class: 'empty' }, ic('flag', 'big-ic'), h('p', null, 'Még üres a bakancslistád.'),
+        h('p', { class: 'muted small' }, 'Egy hely oldalán a „Bakancslistára" gombbal teheted fel, akár dátummal is. A megtett túrákat a szívvel jelölheted kedvencnek.'),
+        h('a', { class: 'btn primary', href: '#/' }, ic('explore'), ' Helyek böngészése')) : null,
+      planned.length ? section('Tervezett', h('div', { class: 'places' }, planned.map(plannedCard))) : null,
+      wishes.length ? section('Egyszer eljutok ide', h('div', { class: 'places' }, wishes.map((p) => placeCard(p, open)))) : null,
+      favs.length ? section('Kedvenc túráim', h('div', { class: 'list' }, favs.map(hikeCard))) : null,
+      visited.length ? section('Ahol már jártam', h('div', { class: 'places' }, visited.map((p) => {
+        const n = hikesAll.filter((x) => x.place?.id === p.id).length;
+        const card = placeCard(p, open);
+        card.querySelector('small').textContent += n ? ` · ${n} túra` : ' · saját hely';
+        return card;
+      }))) : null);
+  }
+
+  // All-day calendar event; iPhone Safari offers "Add to Calendar" for .ics files.
+  function exportIcs(p) {
+    const d = p.wish.date.replace(/-/g, '');
+    const next = new Date(p.wish.date + 'T12:00:00'); next.setDate(next.getDate() + 1);
+    const d2 = next.toISOString().slice(0, 10).replace(/-/g, '');
+    const esc = (t) => String(t).replace(/[\\,;]/g, (c) => '\\' + c);
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Turanaplo//HU', 'BEGIN:VEVENT',
+      `UID:${p.id.replace(/[^a-z0-9]/gi, '')}-${d}@turanaplo`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`,
+      `DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${d2}`, `SUMMARY:${esc('Túra: ' + p.name)}`,
+      `LOCATION:${esc([p.name, p.town, p.region].filter(Boolean).join(', '))}`, `GEO:${p.lat};${p.lon}`,
+      `DESCRIPTION:${esc(appleMaps(p.lat, p.lon))}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+    download(new Blob([ics], { type: 'text/calendar' }), `tura-${d}.ics`);
   }
 
   // ---------- settings ----------
@@ -739,7 +844,7 @@
   }
 
   // ---------- router ----------
-  const TABS = { explore: ['', 'explore', 'place'], hikes: ['hikes', 'hike', 'track'], places: ['myplaces'], settings: ['settings'] };
+  const TABS = { explore: ['', 'explore', 'place'], hikes: ['hikes', 'hike', 'track'], places: ['bucket', 'myplaces'], settings: ['settings'] };
 
   async function route() {
     cleanup.forEach((fn) => { try { fn(); } catch (e) { /* ignore */ } });
@@ -755,7 +860,7 @@
         case 'track': return track();
         case 'hike': return await hikeView(parts[1]);
         case 'hikes': return await hikes();
-        case 'myplaces': return await myPlaces();
+        case 'bucket': case 'myplaces': return await bucketList();
         case 'place': return await placeView(decodeURIComponent(parts.slice(1).join('/')));
         case 'settings': return await settings();
         default: return await explore();
