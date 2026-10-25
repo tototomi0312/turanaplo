@@ -1,6 +1,6 @@
 // App-shell cache so the app opens without signal on the trail. Map tiles are
 // cached opportunistically (only what was already viewed), capped in size.
-const SHELL = 'turanaplo-shell-v1';
+const SHELL = 'turanaplo-shell-v2';
 const TILES = 'turanaplo-tiles-v1';
 const MAX_TILES = 1500;
 const FILES = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png',
@@ -37,9 +37,10 @@ self.addEventListener('fetch', (e) => {
     }));
     return;
   }
-  // App files: network first (so updates arrive), cache as fallback offline.
+  // App files: network first, revalidating past the 10-minute HTTP cache of
+  // GitHub Pages so an update shows up on the next open; cache as offline fallback.
   if (url.origin === location.origin || url.hostname === 'cdnjs.cloudflare.com') {
-    e.respondWith(fetch(e.request).then((res) => {
+    e.respondWith(fetch(e.request, { cache: 'no-cache' }).then((res) => {
       const copy = res.clone();
       caches.open(SHELL).then((c) => c.put(e.request, copy));
       return res;
