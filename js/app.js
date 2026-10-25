@@ -11,9 +11,10 @@
   const REPORT_TYPES = ['Lezárt / járhatatlan út', 'Hiányzó vagy rossz jelzés', 'Kidőlt fa, akadály',
     'Bezárt / megszűnt létesítmény', 'Új vagy változott útvonal', 'Egyéb'];
   const FILTERS = [['Mind', null], ['Csúcs', ['peak']], ['Kilátó', ['tower', 'viewpoint']], ['Turistaház', ['alpine_hut', 'wilderness_hut']],
-    ['Barlang', ['cave_entrance']], ['Vízesés', ['waterfall']], ['Vár', ['castle']]];
+    ['Szikla, gerinc', ['ridge', 'cliff', 'rock', 'arch', 'saddle', 'gorge']], ['Barlang', ['cave_entrance']], ['Vízesés', ['waterfall']], ['Vár', ['castle']]];
   const KIND_COLOR = { peak: '#2f6b4f', tower: '#b5541c', viewpoint: '#b5541c', alpine_hut: '#7a4fa0', wilderness_hut: '#7a4fa0',
-    cave_entrance: '#5c5c5c', waterfall: '#1f78b4', castle: '#8c5a2b' };
+    cave_entrance: '#5c5c5c', waterfall: '#1f78b4', castle: '#8c5a2b',
+    ridge: '#6b7f3a', saddle: '#6b7f3a', cliff: '#7d6a55', rock: '#7d6a55', arch: '#7d6a55', gorge: '#7d6a55' };
 
   backBtn.innerHTML = Icons.back;
   backBtn.addEventListener('click', () => history.length > 1 ? history.back() : (location.hash = '#/'));
@@ -41,7 +42,7 @@
   }
 
   function placeCard(p, onClick) {
-    const meta = [Places.KIND[p.kind] || 'Hely', p.region, p.ele ? `${Math.round(p.ele)} m` : null].filter(Boolean).join(' · ');
+    const meta = [Places.KIND[p.kind] || 'Hely', p.town, p.region, p.ele ? `${Math.round(p.ele)} m` : null].filter(Boolean).join(' · ');
     return h('button', { class: 'place', type: 'button', onclick: () => onClick(p) },
       kindBadge(p.kind),
       h('span', { class: 'place-body' }, h('strong', null, p.name), h('small', null, meta)),
@@ -74,7 +75,7 @@
     const own = await DB.get('places', id), cat = await Catalog.byId(id);
     if (!own) return cat;
     const merged = Object.assign({}, cat || {}, own);
-    for (const k of ['ele', 'region']) if (merged[k] == null && cat) merged[k] = cat[k];
+    for (const k of ['ele', 'region', 'town']) if (merged[k] == null && cat) merged[k] = cat[k];
     return merged;
   }
 
@@ -108,8 +109,9 @@
       count.textContent = `${results.length.toLocaleString('hu-HU')} hely` + (st.near ? ', távolság szerint' : '');
       list.replaceChildren(...results.slice(0, st.limit).map((p) => placeCard(p, pick)),
         ...(results.length > st.limit ? [h('button', { class: 'btn ghost wide', onclick: () => { st.limit += 60; refresh(); } }, 'Továbbiak')] : []));
-      if (!results.length) list.append(h('div', { class: 'empty' }, h('p', null, 'Nincs ilyen hely a listában.'),
-        st.q ? h('button', { class: 'btn', onclick: () => onlineSearch(st.q) }, ic('search'), ' Keresés a teljes térképen') : null));
+      if (!results.length) list.append(h('p', { class: 'empty' }, 'Nincs ilyen hely a beépített listában.'));
+      // The built-in list is a selection; the full OSM search is always one tap away.
+      if (st.q) list.append(h('button', { class: 'btn wide', onclick: () => onlineSearch(st.q) }, ic('search'), ` „${st.q}" keresése a teljes térképen`));
       if (map) updateMapData();
     }
 
@@ -214,7 +216,7 @@
       mapEl,
       h('div', { class: 'place-head' }, kindBadge(p.kind),
         h('div', null, h('h1', { class: 'big-title' }, p.name),
-          h('p', { class: 'muted' }, [Places.KIND[p.kind] || 'Hely', p.region, p.ele ? `${Math.round(p.ele)} m` : null].filter(Boolean).join(' · ')))),
+          h('p', { class: 'muted' }, [Places.KIND[p.kind] || 'Hely', p.town, p.region, p.ele ? `${Math.round(p.ele)} m` : null].filter(Boolean).join(' · ')))),
       h('div', { class: 'tags' }, sm.avg ? h('span', { class: 'tag star' }, `★ ${sm.avg.toFixed(1).replace('.', ',')}`) : null,
         tag(sm.kid, 'gyerekbarát'), tag(sm.dog, 'kutyabarát'), sm.difficulty ? h('span', { class: 'tag' }, sm.difficulty) : null),
       h('div', { class: 'actions' },
@@ -272,7 +274,7 @@
   }
 
   const appleMaps = (lat, lon) => `https://maps.apple.com/?daddr=${lat},${lon}&dirflg=d`;
-  const stripPlace = (p) => ({ id: p.id, source: p.source, name: p.name, kind: p.kind, lat: p.lat, lon: p.lon, ele: p.ele ?? null, region: p.region ?? null });
+  const stripPlace = (p) => ({ id: p.id, source: p.source, name: p.name, kind: p.kind, lat: p.lat, lon: p.lon, ele: p.ele ?? null, region: p.region ?? null, town: p.town ?? null });
 
   async function placeSummary(placeId) {
     const hikes = (await DB.all('hikes')).filter((x) => x.place?.id === placeId && x.status === 'finished');

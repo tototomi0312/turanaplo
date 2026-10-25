@@ -9,7 +9,8 @@
     peak: 'Csúcs', viewpoint: 'Kilátópont', tower: 'Kilátó', alpine_hut: 'Turistaház',
     wilderness_hut: 'Menedékház', shelter: 'Esőbeálló', cave_entrance: 'Barlang',
     spring: 'Forrás', waterfall: 'Vízesés', ruins: 'Rom', route: 'Turistaút', own: 'Saját hely',
-    picnic_site: 'Pihenőhely', castle: 'Vár', other: 'Hely',
+    picnic_site: 'Pihenőhely', castle: 'Vár', ridge: 'Gerinc', cliff: 'Sziklafal', rock: 'Szikla',
+    arch: 'Sziklakapu', saddle: 'Nyereg', gorge: 'Szurdok', other: 'Hely',
   };
 
   function kindOf(tags) {

@@ -9,11 +9,15 @@
     if (items) return items;
     const res = await fetch('data/places-hu.json');
     data = await res.json();
-    items = data.items.map(([id, name, k, lat, lon, ele, r, score]) => ({
-      id: 'osm:' + ({ n: 'node', w: 'way', r: 'relation' }[id[0]]) + '/' + id.slice(1),
-      source: 'osm', name, kind: data.kinds[k], lat, lon, ele, region: r >= 0 ? data.regions[r] : null,
-      score, key: norm(name + ' ' + (r >= 0 ? data.regions[r] : '')),
-    }));
+    const towns = data.towns || [];
+    items = data.items.map(([id, name, k, lat, lon, ele, r, score, t = -1]) => {
+      const region = r >= 0 ? data.regions[r] : null, town = t >= 0 ? towns[t] : null;
+      return {
+        id: 'osm:' + ({ n: 'node', w: 'way', r: 'relation' }[id[0]]) + '/' + id.slice(1),
+        source: 'osm', name, kind: data.kinds[k], lat, lon, ele, region, town,
+        score, key: norm([name, town, region].filter(Boolean).join(' ')),
+      };
+    });
     return items;
   }
 

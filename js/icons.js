@@ -15,6 +15,7 @@
     cave: s('<path d="M3 20c0-7 4-14 9-14s9 7 9 14"/><path d="M9 20c0-3 1.3-6 3-6s3 3 3 6"/>'),
     waterfall: s('<path d="M4 4h16M8 4v10M12 4v13M16 4v10M5 20c2-1 3-1 5 0s3 1 5 0 3-1 4 0"/>'),
     castle: s('<path d="M4 21V8h3v2h2V8h2v2h2V8h2v2h2V8h3v13z"/><path d="M10 21v-4a2 2 0 0 1 4 0v4"/>'),
+    rock: s('<path d="M3 19 6 9l5-4 6 3 4 11z"/><path d="m11 5 1 6 5-3M6 9l6 2-1 8"/>'),
     spring: s('<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>'),
     pin: s('<path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>'),
     parking: s('<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/>'),
@@ -40,5 +41,6 @@
   };
   window.KindIcon = { peak: 'peak', tower: 'tower', viewpoint: 'viewpoint', alpine_hut: 'hut', wilderness_hut: 'hut',
     shelter: 'hut', cave_entrance: 'cave', waterfall: 'waterfall', castle: 'castle', ruins: 'castle', spring: 'spring',
-    own: 'pin', route: 'route', other: 'pin', picnic_site: 'pin' };
+    own: 'pin', route: 'route', other: 'pin', picnic_site: 'pin',
+    ridge: 'peak', saddle: 'peak', cliff: 'rock', rock: 'rock', arch: 'rock', gorge: 'cave' };
 })();
